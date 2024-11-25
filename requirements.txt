@@ -1,0 +1,9 @@
+streamlit
+google-generativeai
+python-dotenv
+ipython
+xlsxwriter
+openpyxl
+google-cloud-storage
+numpy
+gcsfs
