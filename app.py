@@ -20,7 +20,7 @@ via_importacion = st.selectbox("Seleccione la vía de importación:", ["Aérea",
 referencia = st.text_input("Ingrese la referencia del pedido:")
 
 # Campo para ingresar la API key de Gemini
-gemini_api_key = st.text_input("Ingresa tu API key de Gemini", type="password")
+gemini_api_key = st.secrets["gemini_api_key"]
 
 # Botón para procesar los datos
 procesar = st.button("Procesar")
