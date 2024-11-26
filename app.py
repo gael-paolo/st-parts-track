@@ -40,7 +40,6 @@ URL_MARITIMA = st.secrets["URL_MARITIMA"]
 
 gemini_api_key = st.secrets["gemini_api_key"]
 
-
 # Función para cargar datos
 def cargar_datos(url, sheet_name, via):
     df = pd.read_excel(url, sheet_name=sheet_name, header=3)
@@ -50,6 +49,8 @@ def cargar_datos(url, sheet_name, via):
         df["SHIP DATE"] = pd.to_datetime(df["SHIP DATE"], errors="coerce")
         df["ETA LA PAZ"] = pd.to_datetime(df["SHIP DATE"] + pd.Timedelta(days=60), errors="coerce")
     df["FECHA LLEGADA"] = pd.to_datetime(df["FECHA LLEGADA"], errors="coerce")
+    df["ETA LA PAZ"] = pd.to_datetime(df["ETA LA PAZ"], errors="coerce")
+    
     return df
 
 # Función para validar estado de pedidos
@@ -61,15 +62,15 @@ def validar_estado_pedidos(df):
         df["INVOICE"].isnull() & (df["STATUS"] == "B/O"),
         df["FECHA LLEGADA"].notna(),
         df["FECHA LLEGADA"].isna() & df["INVOICE"].notna(),
-        (df["FECHA LLEGADA"].isna() & (df["ETA LA PAZ"] < pd.Timestamp.now()) & df["INVOICE"].notna()),
-    ]
+        (df["FECHA LLEGADA"].isna() & (df["ETA LA PAZ"] < pd.Timestamp.now()) & df["INVOICE"].notna())]
+    
     resultados = [
         "Cancelado y no será atendido.",
         "Estado en Back Order, posible retraso.",
         "La Pieza ha arribado al almacén.",
         "La Pieza se encuentra en tránsito.",
-        "Posible atraso en el pedido.",
-    ]
+        "Posible atraso en el pedido."]
+    
     df["ANALISIS"] = np.select(condiciones, resultados, default="Sin información suficiente.")
     return df
 
@@ -125,11 +126,12 @@ if st.session_state.mostrar_referencia:
                     df = cargar_datos(URL_AEREA, "CONTROL_PEDIDOS", "Aérea")
                 else:
                     df = cargar_datos(URL_MARITIMA, "CTRL", "Marítima")
-                df = validar_estado_pedidos(df)
                 df_filtrado = df[df["REFERENCIA"] == referencia]
+                df_filtrado = validar_estado_pedidos(df_filtrado)
+
                 if not df_filtrado.empty:
                     st.subheader(f"Resultados para la referencia: {referencia}")
-                    st.dataframe(df_filtrado)
+                    st.dataframe(df_filtrado.drop(df_filtrado.columns[5], axis=1))
                     genai.configure(api_key=gemini_api_key)
                     comentario = get_gemini_prompt(df_filtrado)
                     st.write(comentario)
@@ -151,9 +153,10 @@ if st.session_state.mostrar_busqueda_similar:
                     df = cargar_datos(URL_MARITIMA, "CTRL", "Marítima")
                 df = validar_estado_pedidos(df)
                 resultados_similares = buscar_similares(df, "CLIENTE", cliente_busqueda, limite=10, umbral=80)
+
                 if not resultados_similares.empty:
                     st.subheader(f"Resultados similares para: {cliente_busqueda}")
-                    st.dataframe(resultados_similares)                    
+                    st.dataframe(resultados_similares.drop(resultados_similares.columns[5], axis=1))                    
                     genai.configure(api_key=gemini_api_key)
                     comentario = get_gemini_prompt(resultados_similares)
                     st.write(comentario)
