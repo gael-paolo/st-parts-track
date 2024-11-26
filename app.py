@@ -2,38 +2,87 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import google.generativeai as genai
-import gcsfs
+from rapidfuzz import process, fuzz
 
-# Configuración inicial de la aplicación
+# Configuración inicial
 st.set_page_config(page_title="Tracking de Pedidos", layout="wide")
 
-# Título de la aplicación
+# Título
 st.title("Tracking de Pedidos ~ Nissan Parts")
 
-# Sección 1: Ingreso de datos
+# Sección inicial
 st.header("Ingreso de Datos")
-
-# Campo para seleccionar la vía de importación
 via_importacion = st.selectbox("Seleccione la vía de importación:", ["Aérea", "Marítima"])
 
-# Campo para ingresar la referencia
-referencia = st.text_input("Ingrese la referencia del pedido:")
+# Botones principales
+consulta_referencia_btn = st.button("Opción: Consulta Referencia", key="consulta_referencia_btn")
+busqueda_similar_btn = st.button("Opción: Búsqueda de Nombres Similares", key="busqueda_similar_btn")
 
-# Campo para ingresar la API key de Gemini
-gemini_api_key = st.secrets["gemini_api_key"]
+# Bandera para mostrar campos adicionales
+if "mostrar_referencia" not in st.session_state:
+    st.session_state.mostrar_referencia = False
 
-# Botón para procesar los datos
-procesar = st.button("Procesar")
+if "mostrar_busqueda_similar" not in st.session_state:
+    st.session_state.mostrar_busqueda_similar = False
 
-# Variables para almacenar los DataFrames según la vía de importación
-df_filtrado = None
+# Manejo de botones
+if consulta_referencia_btn:
+    st.session_state.mostrar_referencia = True
+    st.session_state.mostrar_busqueda_similar = False
 
-# URLs públicas de los archivos en GCP
+if busqueda_similar_btn:
+    st.session_state.mostrar_referencia = False
+    st.session_state.mostrar_busqueda_similar = True
+
+# URLs públicas
 URL_AEREA = st.secrets["URL_AEREA"]
 URL_MARITIMA = st.secrets["URL_MARITIMA"]
 
-# Función para generar el prompt para Gemini
+gemini_api_key = st.secrets["gemini_api_key"]
 
+
+# Función para cargar datos
+def cargar_datos(url, sheet_name, via):
+    df = pd.read_excel(url, sheet_name=sheet_name, header=3)
+    df["REFERENCIA"] = df["REFERENCIA"].astype(str)
+    df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
+    if via == "Marítima":
+        df["SHIP DATE"] = pd.to_datetime(df["SHIP DATE"], errors="coerce")
+        df["ETA LA PAZ"] = pd.to_datetime(df["SHIP DATE"] + pd.Timedelta(days=60), errors="coerce")
+    df["FECHA LLEGADA"] = pd.to_datetime(df["FECHA LLEGADA"], errors="coerce")
+    return df
+
+# Función para validar estado de pedidos
+def validar_estado_pedidos(df):
+    df["STATUS"] = df["STATUS"].fillna("")
+    df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
+    condiciones = [
+        df["STATUS"] == "C",
+        df["INVOICE"].isnull() & (df["STATUS"] == "B/O"),
+        df["FECHA LLEGADA"].notna(),
+        df["FECHA LLEGADA"].isna() & df["INVOICE"].notna(),
+        (df["FECHA LLEGADA"].isna() & (df["ETA LA PAZ"] < pd.Timestamp.now()) & df["INVOICE"].notna()),
+    ]
+    resultados = [
+        "Cancelado y no será atendido.",
+        "Estado en Back Order, posible retraso.",
+        "La Pieza ha arribado al almacén.",
+        "La Pieza se encuentra en tránsito.",
+        "Posible atraso en el pedido.",
+    ]
+    df["ANALISIS"] = np.select(condiciones, resultados, default="Sin información suficiente.")
+    return df
+
+# Función de búsqueda difusa
+def buscar_similares(df, columna, termino_busqueda, limite=5, umbral=70):
+    termino_busqueda = termino_busqueda.strip().lower()
+    df[columna] = df[columna].fillna("").str.lower()
+    nombres = df[columna].unique()
+    coincidencias = process.extract(termino_busqueda, nombres, scorer=fuzz.partial_ratio, limit=limite)
+    nombres_similares = [c[0] for c in coincidencias if c[1] >= umbral]
+    return df[df[columna].isin(nombres_similares)]
+
+# Función para análisis con Gemini
 def apply_prompt_template(dataframe):
     return f"""
     Eres un asistente de IA especializado en logística. Tu tarea es analizar los resultados de un conjunto de datos ya procesados 
@@ -58,91 +107,57 @@ def apply_prompt_template(dataframe):
     Aplica estas reglas al siguiente conjunto de datos:
     {dataframe[["REFERENCIA", "ANALISIS"]].to_dict()}
     """
-
 def get_gemini_prompt(dataframe):
     prompt = apply_prompt_template(dataframe)
     model = genai.GenerativeModel("gemini-pro")
     response = model.generate_content(prompt)
     return response.text.strip()
 
-def validar_estado_pedidos(df):
-    df["FECHA LLEGADA"] = pd.to_datetime(df["FECHA LLEGADA"], errors="coerce")
-    df["ETA LA PAZ"] = pd.to_datetime(df["ETA LA PAZ"], errors="coerce")
-    df["STATUS"] = df["STATUS"].fillna("")
-    df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
+# Mostrar campos según el botón seleccionado
+if st.session_state.mostrar_referencia:
+    referencia = st.text_input("Ingrese la referencia del pedido:")
+    procesar = st.button("Consultar Referencia")
+    if procesar and referencia:
+        with st.spinner("Procesando referencia..."):
+            try:
+                # Carga de datos y filtrado por referencia
+                if via_importacion == "Aérea":
+                    df = cargar_datos(URL_AEREA, "CONTROL_PEDIDOS", "Aérea")
+                else:
+                    df = cargar_datos(URL_MARITIMA, "CTRL", "Marítima")
+                df = validar_estado_pedidos(df)
+                df_filtrado = df[df["REFERENCIA"] == referencia]
+                if not df_filtrado.empty:
+                    st.subheader(f"Resultados para la referencia: {referencia}")
+                    st.dataframe(df_filtrado)
+                    genai.configure(api_key=gemini_api_key)
+                    comentario = get_gemini_prompt(df_filtrado)
+                    st.write(comentario)
+                else:
+                    st.warning("No se encontraron resultados para la referencia proporcionada.")
+            except Exception as e:
+                st.error(f"Error al procesar la referencia: {e}")
 
-    cancelado = df["STATUS"] == "C"
-    back_order = df["INVOICE"].isnull() & (df["STATUS"] == "B/O")
-    ha_arribado = df["FECHA LLEGADA"].notna()
-    en_transito = df["FECHA LLEGADA"].isna() & df["INVOICE"].notna()
-    atrasado = (
-        df["FECHA LLEGADA"].isna() & 
-        (df["ETA LA PAZ"] < pd.Timestamp.now()) & 
-        df["INVOICE"].notna())
-
-    condiciones = [cancelado, back_order, ha_arribado, en_transito, atrasado]
-    resultados = [
-        "Cancelado y no será atendido.",
-        "Estado en Back Order, posible retraso.",
-        "La Pieza ha arribado al almacén.",
-        "La Pieza se encuentra en tránsito.",
-        "Posible atraso en el pedido."]
-
-    df["ANALISIS"] = np.select(condiciones, resultados, default="Sin información suficiente.")
-
-# Sección 2: Tabla con los resultados del pedido
-if procesar and referencia:
-    try:
-        if via_importacion == "Aérea":
-            # Cargar el archivo correspondiente
-            air = pd.read_excel(URL_AEREA, sheet_name="CONTROL_PEDIDOS", header=3)
-            air["REFERENCIA"] = air["REFERENCIA"].astype(str)
-            air["INVOICE"] = air["INVOICE"].replace(["", "(en blanco)"], pd.NA)
-            air = air.iloc[:, :-1]
-            air["FECHA LLEGADA"] = pd.to_datetime(air["FECHA LLEGADA"], errors="coerce")
-            air["ETA LA PAZ"] = pd.to_datetime(air["ETA LA PAZ"], errors="coerce").fillna('-')
-
-            # Validar pedidos
-            validar_estado_pedidos(air)
-
-            # Filtrar por referencia
-            df_filtrado = air[air["REFERENCIA"] == referencia]
-            df_filtrado["FECHA LLEGADA"] = df_filtrado["FECHA LLEGADA"].dt.strftime("%Y-%m-%d")
-            df_filtrado["ETA LA PAZ"] = df_filtrado["ETA LA PAZ"].dt.strftime("%Y-%m-%d")
-
-        else:
-            # Cargar el archivo correspondiente
-            sea = pd.read_excel(URL_MARITIMA, sheet_name="CTRL", header=3)
-            sea["REFERENCIA"] = sea["REFERENCIA"].astype(str)
-            sea["INVOICE"] = sea["INVOICE"].replace(["", "(en blanco)"], pd.NA)
-            sea = sea.iloc[:, :-1]
-            sea['SHIP DATE'] = pd.to_datetime(sea['SHIP DATE'], errors='coerce')
-            sea['FECHA LLEGADA'] = pd.to_datetime(sea['FECHA LLEGADA'], errors='coerce')
-            sea['ETA LA PAZ'] = sea['SHIP DATE'] + pd.Timedelta(days=60)
-            sea['ETA LA PAZ'] = pd.to_datetime(sea['ETA LA PAZ'], errors='coerce').fillna('-')
-
-            # Validar pedidos
-            validar_estado_pedidos(sea)
-
-            # Filtrar por referencia
-            df_filtrado = sea[sea["REFERENCIA"] == referencia]
-            df_filtrado["FECHA LLEGADA"] = df_filtrado["FECHA LLEGADA"].dt.strftime("%Y-%m-%d")
-            df_filtrado["ETA LA PAZ"] = df_filtrado["ETA LA PAZ"].dt.strftime("%Y-%m-%d")
-            df_filtrado["SHIP DATE"] = df_filtrado["SHIP DATE"].dt.strftime("%Y-%m-%d")
-
-        # Mostrar resultados
-        if not df_filtrado.empty:
-            st.subheader(f"Resultados para la referencia: {referencia}")
-            st.dataframe(df_filtrado.drop(df_filtrado.columns[5], axis=1))
-
-    except Exception as e:
-        st.error(f"Error al procesar los datos: {e}")
-
-# Sección 3: Análisis con la API Gemini
-if procesar and df_filtrado is not None and not df_filtrado.empty:
-    try:
-        genai.configure(api_key=gemini_api_key)
-        comentario = get_gemini_prompt(df_filtrado)
-        st.write(comentario)
-    except Exception as e:
-        st.error(f"Error al conectar con la API Gemini: {e}")
+if st.session_state.mostrar_busqueda_similar:
+    cliente_busqueda = st.text_input("Ingrese el nombre del cliente para búsqueda:")
+    buscar_similares_btn = st.button("Buscar Nombres Similares")
+    if buscar_similares_btn and cliente_busqueda.strip():
+        with st.spinner("Buscando coincidencias similares..."):
+            try:
+                # Carga de datos y búsqueda difusa
+                if via_importacion == "Aérea":
+                    df = cargar_datos(URL_AEREA, "CONTROL_PEDIDOS", "Aérea")
+                else:
+                    df = cargar_datos(URL_MARITIMA, "CTRL", "Marítima")
+                df = validar_estado_pedidos(df)
+                resultados_similares = buscar_similares(df, "CLIENTE", cliente_busqueda, limite=10, umbral=80)
+                if not resultados_similares.empty:
+                    st.subheader(f"Resultados similares para: {cliente_busqueda}")
+                    st.dataframe(resultados_similares)                    
+                    genai.configure(api_key=gemini_api_key)
+                    comentario = get_gemini_prompt(resultados_similares)
+                    st.write(comentario)
+                else:
+                    st.warning("No se encontraron coincidencias similares.")
+            except Exception as e:
+                st.error(f"Error durante la búsqueda de nombres similares: {e}")
