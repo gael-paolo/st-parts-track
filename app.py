@@ -29,8 +29,8 @@ procesar = st.button("Procesar")
 df_filtrado = None
 
 # URLs públicas de los archivos en GCP
-URL_AEREA = "https://storage.googleapis.com/bk_parts/Maestro%20Pedidos%20Especificos.xlsx"
-URL_MARITIMA = "https://storage.googleapis.com/bk_parts/Maestro%20Pedidos%20Stock.xlsx"
+URL_AEREA = st.secrets["URL_AEREA"]
+URL_MARITIMA = st.secrets["URL_MARITIMA"]
 
 # Función para generar el prompt para Gemini
 
