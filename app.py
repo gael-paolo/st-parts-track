@@ -10,8 +10,8 @@ st.set_page_config(page_title="Tracking de Pedidos", layout="wide")
 # Título
 st.title("Tracking de Pedidos ~ Nissan Parts")
 
-# Sección inicial
-st.header("Ingreso de Datos")
+# Sección Reservas
+st.header("Consulta Pedidos Reservados")
 via_importacion = st.selectbox("Seleccione la vía de importación:", ["Aérea", "Marítima"])
 
 # Botones principales
@@ -25,6 +25,9 @@ if "mostrar_referencia" not in st.session_state:
 if "mostrar_busqueda_similar" not in st.session_state:
     st.session_state.mostrar_busqueda_similar = False
 
+if "mostrar_transito" not in st.session_state:
+    st.session_state.mostrar_transito = False
+
 # Manejo de botones
 if consulta_referencia_btn:
     st.session_state.mostrar_referencia = True
@@ -37,40 +40,62 @@ if busqueda_similar_btn:
 # URLs públicas
 URL_AEREA = st.secrets["URL_AEREA"]
 URL_MARITIMA = st.secrets["URL_MARITIMA"]
+URL_TRANSITO = st.secrets["URL_TRANSITO"]
 
 gemini_api_key = st.secrets["gemini_api_key"]
 
 # Función para cargar datos
-def cargar_datos(url, sheet_name, via):
-    df = pd.read_excel(url, sheet_name=sheet_name, header=3)
+def cargar_datos(url, via):
+    df = pd.read_csv(url)
     df["REFERENCIA"] = df["REFERENCIA"].astype(str)
     df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
     if via == "Marítima":
-        df["SHIP DATE"] = pd.to_datetime(df["SHIP DATE"], errors="coerce")
-        df["ETA LA PAZ"] = pd.to_datetime(df["SHIP DATE"] + pd.Timedelta(days=60), errors="coerce")
-    df["FECHA LLEGADA"] = pd.to_datetime(df["FECHA LLEGADA"], errors="coerce")
-    df["ETA LA PAZ"] = pd.to_datetime(df["ETA LA PAZ"], errors="coerce")
-    
+        df["SHIP_DATE"] = pd.to_datetime(df["SHIP_DATE"], errors="coerce")
+        df["ETA_LP"] = pd.to_datetime(df["SHIP_DATE"] + pd.Timedelta(days=60), errors="coerce")
+        df["SHIP_DATE"] = df["SHIP_DATE"].apply(
+            lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") else x)
+    df["FECHA_LLEGADA"] = pd.to_datetime(df["FECHA_LLEGADA"], errors="coerce")
+    df["ETA_LP"] = pd.to_datetime(df["ETA_LP"], errors="coerce")
+    return df
+
+def cargar_transito(url):
+    df = pd.read_csv(url)
     return df
 
 # Función para validar estado de pedidos
 def validar_estado_pedidos(df):
+    # Limpieza de las columnas STATUS e INVOICE
     df["STATUS"] = df["STATUS"].fillna("")
     df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
+    df["INVOICE"] = df["INVOICE"].apply(
+        lambda x: pd.NA if pd.isnull(x) or x == "Sin Invoice" else x)
+
+    # Considerar valores "1900-01-01" como NaT en las fechas
+    df["FECHA_LLEGADA"] = df["FECHA_LLEGADA"].apply(
+        lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") else x)
+    df["ETA_LP"] = df["ETA_LP"].apply(
+        lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") or x == pd.Timestamp("1900-03-02") else x)
+
+    # Definir las condiciones para el análisis
     condiciones = [
-        df["STATUS"] == "C",
+        (df["STATUS"] == "C") | (df["STATUS"] == "U"),
+        (df["FECHA_LLEGADA"].isna() & (df["ETA_LP"] < pd.Timestamp.now()) & df["INVOICE"].isnull()),
+        (df["FECHA_LLEGADA"].isna() & (df["ETA_LP"] < pd.Timestamp.now()) & df["INVOICE"].notna()),
         df["INVOICE"].isnull() & (df["STATUS"] == "B/O"),
-        df["FECHA LLEGADA"].notna(),
-        df["FECHA LLEGADA"].isna() & df["INVOICE"].notna(),
-        (df["FECHA LLEGADA"].isna() & (df["ETA LA PAZ"] < pd.Timestamp.now()) & df["INVOICE"].notna())]
-    
+        df["FECHA_LLEGADA"].notna(),
+        df["FECHA_LLEGADA"].isna() & df["INVOICE"].notna()
+        ]
+
+    # Resultados correspondientes a las condiciones
     resultados = [
         "Cancelado y no será atendido.",
+        "Pedido sin Atención y Retrasado",
+        "Pedido Retrasado en tránsito",
         "Estado en Back Order, posible retraso.",
         "La Pieza ha arribado al almacén.",
-        "La Pieza se encuentra en tránsito.",
-        "Posible atraso en el pedido."]
-    
+        "La Pieza se encuentra en tránsito."
+    ]
+    # Aplicar las condiciones y asignar resultados al campo ANALISIS
     df["ANALISIS"] = np.select(condiciones, resultados, default="Sin información suficiente.")
     return df
 
@@ -87,25 +112,27 @@ def buscar_similares(df, columna, termino_busqueda, limite=5, umbral=70):
 def apply_prompt_template(dataframe):
     return f"""
     Eres un asistente de IA especializado en logística. Tu tarea es analizar los resultados de un conjunto de datos ya procesados 
-    y proporcionar conclusiones claras y breves.
+    y proporcionar conclusiones claras y detalladas.
 
     ### Instrucciones:
     1. Los datos ya han sido clasificados previamente según su estado en la columna "ANALISIS".
-    2. Basa tu análisis en el número de líneas (o pedidos) y en la columna "ANALISIS". No interpretes que hay piezas u otros valores, únicamente considera las líneas de datos presentes.
-    3. Tu respuesta debe ser profesional, breve y precisa, evitando incluir información que no se derive explícitamente de los datos del dataframe que tienes disponible.
+    2. Basa tu análisis en el número de líneas (o pedidos), en la columna "ANALISIS" y en las Columnas de Fechas entregadas. 
+    3. Proporciona no solo un resumen cuantitativo, sino también un análisis cualitativo que evalúe posibles patrones importantes observados en los datos.
+    4. Tu respuesta debe ser profesional, detallada y relevante, evitando información no fundamentada en los datos proporcionados.
 
     ### Objetivo de tu respuesta:
     - Resume el estado de las líneas de datos según los valores únicos en la columna "ANALISIS".
     - Calcula cuántas líneas hay en cada estado (por ejemplo, cuántas están en tránsito, cuántas arribaron al almacén, cuántas fueron canceladas, etc.).
-    - No agregues información inventada ni utilices otros valores de las columnas.
-
+    - Proporciona un análisis adicional: ¿existen algún dato que vale la pena mencionar? 
+   
     ### Ejemplo de respuesta esperada:
-    - "De las 10 líneas de pedido, 8 han arribado al almacén y 2 están en tránsito."
-    - "El pedido presenta posibles atrasos en 3 líneas, mientras que 7 ya han arribado."
-    - "Todas las líneas de pedido están en tránsito según los datos procesados."
+    - "De las 10 líneas de pedido, 8 han arribado al almacén y 2 están en tránsito. Sin embargo, se observa que los tiempos de tránsito promedio superan los 60 días en el 20% de los casos, lo que podría sugerir la necesidad de revisar las rutas logísticas. Considerar procesos de seguimiento más estrictos podría ser beneficioso."
+    - "El pedido presenta posibles atrasos en 3 líneas, mientras que 7 ya han arribado. Este retraso parece estar asociado a una falta de documentación en el proveedor. Una recomendación sería revisar los procesos de gestión de documentos para reducir estos tiempos en el futuro."
+    - "Se detecta que el 30% de las líneas de pedido se encuentran en tránsito prolongado (más de 90 días). Esto podría tener impacto en el nivel de servicio al cliente. Recomendamos implementar un sistema de monitoreo más preciso para identificar los puntos críticos en el transporte."
 
-    Con base en la información de la columna "ANALISIS", entrega una conclusión clara y relevante.
-    Aplica estas reglas al siguiente conjunto de datos:
+    Con base en la información de la columna "ANALISIS", entrega una conclusión clara, relevante y con observaciones adicionales.
+
+    ### Datos para analizar:
     {dataframe[["REFERENCIA", "ANALISIS"]].to_dict()}
     """
 def get_gemini_prompt(dataframe):
@@ -123,11 +150,13 @@ if st.session_state.mostrar_referencia:
             try:
                 # Carga de datos y filtrado por referencia
                 if via_importacion == "Aérea":
-                    df = cargar_datos(URL_AEREA, "CONTROL_PEDIDOS", "Aérea")
+                    df = cargar_datos(URL_AEREA, "Aérea")
                 else:
-                    df = cargar_datos(URL_MARITIMA, "CTRL", "Marítima")
+                    df = cargar_datos(URL_MARITIMA, "Marítima")
                 df_filtrado = df[df["REFERENCIA"] == referencia]
                 df_filtrado = validar_estado_pedidos(df_filtrado)
+                df_filtrado["ETA_LP"] = pd.to_datetime(df_filtrado["ETA_LP"]).dt.strftime("%Y/%m/%d")
+                df_filtrado["FECHA_LLEGADA"] = pd.to_datetime(df_filtrado["FECHA_LLEGADA"]).dt.strftime("%Y/%m/%d")
 
                 if not df_filtrado.empty:
                     st.subheader(f"Resultados para la referencia: {referencia}")
@@ -148,10 +177,12 @@ if st.session_state.mostrar_busqueda_similar:
             try:
                 # Carga de datos y búsqueda difusa
                 if via_importacion == "Aérea":
-                    df = cargar_datos(URL_AEREA, "CONTROL_PEDIDOS", "Aérea")
+                    df = cargar_datos(URL_AEREA, "Aérea")
                 else:
-                    df = cargar_datos(URL_MARITIMA, "CTRL", "Marítima")
+                    df = cargar_datos(URL_MARITIMA, "Marítima")
                 df = validar_estado_pedidos(df)
+                df["ETA_LP"] = pd.to_datetime(df["ETA_LP"]).dt.strftime("%Y/%m/%d")
+                df["FECHA_LLEGADA"] = pd.to_datetime(df["FECHA_LLEGADA"]).dt.strftime("%Y/%m/%d")
                 resultados_similares = buscar_similares(df, "CLIENTE", cliente_busqueda, limite=10, umbral=80)
 
                 if not resultados_similares.empty:
@@ -164,3 +195,29 @@ if st.session_state.mostrar_busqueda_similar:
                     st.warning("No se encontraron coincidencias similares.")
             except Exception as e:
                 st.error(f"Error durante la búsqueda de nombres similares: {e}")
+
+st.header("Consulta Material en Tránsito")
+transito_btn = st.button("Opción: Consulta Material en Tránsito", key="consulta_transito_btn")
+
+if transito_btn:
+    st.session_state.mostrar_referencia = False
+    st.session_state.mostrar_busqueda_similar = False
+    st.session_state.mostrar_transito = True
+
+if st.session_state.mostrar_transito:
+    NP = st.text_input("Ingrese el NP que requieres:")
+    procesar_t = st.button("Consultar Tránsito")
+    if procesar_t and NP:
+        with st.spinner("Procesando NP..."):
+            try:
+                df = cargar_transito(URL_TRANSITO)
+                df_filtrado = df[df["NP"] == NP]
+                df_filtrado["INVOICE"] = df_filtrado["INVOICE"].astype(str)
+                # Carga de datos y filtrado por referencia
+                if not df_filtrado.empty:
+                    st.subheader("Resultados:")
+                    st.dataframe(df_filtrado)
+                else:
+                    st.warning("No se encontraron resultados para el NP Proporcionado.")
+            except Exception as e:
+                st.error(f"Error al procesar: {e}")
