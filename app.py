@@ -118,7 +118,8 @@ def apply_prompt_template(dataframe):
     1. Los datos ya han sido clasificados previamente según su estado en la columna "ANALISIS".
     2. Basa tu análisis en el número de líneas (o pedidos), en la columna "ANALISIS" y en las Columnas de Fechas entregadas. 
     3. Proporciona no solo un resumen cuantitativo, sino también un análisis cualitativo que evalúe posibles patrones importantes observados en los datos.
-    4. Tu respuesta debe ser profesional, detallada y relevante, evitando información no fundamentada en los datos proporcionados.
+    4. Tu respuesta debe ser profesional, concisa y relevante, evitando información no fundamentada en los datos proporcionados.
+    5. El campo de ETA_LP es la Fecha en la que se estima que el pedido llegue a almacén. Puedes analizar este dato cuando la pieza no ha arribado o no está cancelada.
 
     ### Objetivo de tu respuesta:
     - Resume el estado de las líneas de datos según los valores únicos en la columna "ANALISIS".
@@ -130,7 +131,7 @@ def apply_prompt_template(dataframe):
     - "El pedido presenta posibles atrasos en 3 líneas, mientras que 7 ya han arribado. Este retraso parece estar asociado a una falta de documentación en el proveedor. Una recomendación sería revisar los procesos de gestión de documentos para reducir estos tiempos en el futuro."
     - "Se detecta que el 30% de las líneas de pedido se encuentran en tránsito prolongado (más de 90 días). Esto podría tener impacto en el nivel de servicio al cliente. Recomendamos implementar un sistema de monitoreo más preciso para identificar los puntos críticos en el transporte."
 
-    Con base en la información de la columna "ANALISIS", entrega una conclusión clara, relevante y con observaciones adicionales.
+    Con base en la información de la columna "ANALISIS", entrega una conclusión clara, relevante y con observaciones.
 
     ### Datos para analizar:
     {dataframe[["REFERENCIA", "ANALISIS"]].to_dict()}
