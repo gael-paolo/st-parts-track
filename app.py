@@ -39,16 +39,11 @@ if busqueda_similar_btn:
     st.session_state.mostrar_busqueda_similar = True
 
 # URLs públicas
-URL_AEREA = "https://storage.googleapis.com/bk_parts/air_report_tracking.csv"
-URL_MARITIMA = "https://storage.googleapis.com/bk_parts/sea_report_tracking.csv"
-URL_TRANSITO = "https://storage.googleapis.com/bk_parts/transit_report.csv"
+URL_AEREA = st.secrets["URL_AEREA"]
+URL_MARITIMA = st.secrets["URL_MARITIMA"]
+URL_TRANSITO = st.secrets["URL_TRANSITO"]
 
-#URL_AEREA = st.secrets["URL_AEREA"]
-#URL_MARITIMA = st.secrets["URL_MARITIMA"]
-#URL_TRANSITO = st.secrets["URL_TRANSITO"]
-
-gemini_api_key = "AIzaSyC8w2d70IXIZi9jqZLwEtZUIUBnom1ttZs"
-#gemini_api_key = st.secrets["gemini_api_key"]
+gemini_api_key = st.secrets["gemini_api_key"]
 
 
 # Función para cargar datos
