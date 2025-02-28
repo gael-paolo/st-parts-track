@@ -39,11 +39,16 @@ if busqueda_similar_btn:
     st.session_state.mostrar_busqueda_similar = True
 
 # URLs públicas
-URL_AEREA = st.secrets["URL_AEREA"]
-URL_MARITIMA = st.secrets["URL_MARITIMA"]
-URL_TRANSITO = st.secrets["URL_TRANSITO"]
+URL_AEREA = "https://storage.googleapis.com/bk_parts/air_report_tracking.csv"
+URL_MARITIMA = "https://storage.googleapis.com/bk_parts/sea_report_tracking.csv"
+URL_TRANSITO = "https://storage.googleapis.com/bk_parts/transit_report.csv"
 
-gemini_api_key = st.secrets["gemini_api_key"]
+#URL_AEREA = st.secrets["URL_AEREA"]
+#URL_MARITIMA = st.secrets["URL_MARITIMA"]
+#URL_TRANSITO = st.secrets["URL_TRANSITO"]
+
+gemini_api_key = "AIzaSyC8w2d70IXIZi9jqZLwEtZUIUBnom1ttZs"
+#gemini_api_key = st.secrets["gemini_api_key"]
 
 
 # Función para cargar datos
@@ -130,6 +135,7 @@ def apply_prompt_template(dataframe):
     2. Basa tu análisis en el número de líneas (o pedidos), en la columna "ANALISIS" y en las Columnas de Fechas entregadas. 
     3. Proporciona no solo un resumen cuantitativo, sino también un análisis cualitativo que evalúe posibles patrones importantes observados en los datos.
     4. Importante: Si consideras que no hay  más información adicional para analizar, se puntual con la respuesta. NO lo hagas muy amplio
+    5. Importante: Si solamente existe una línea, no hace falta que hagas más análisis mas que entregar el estado.
     5. Tu respuesta debe ser profesional, detallada y relevante, evitando información no fundamentada en los datos proporcionados.
 
     ### Objetivo de tu respuesta:
