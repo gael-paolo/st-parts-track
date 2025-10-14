@@ -45,7 +45,6 @@ URL_TRANSITO = st.secrets["URL_TRANSITO"]
 
 gemini_api_key = st.secrets["gemini_api_key"]
 
-
 # Función para cargar datos
 def cargar_datos(url, via):
     df = pd.read_csv(url)
@@ -81,6 +80,7 @@ def validar_estado_pedidos(df):
     # Definir las condiciones para el análisis
     condiciones = [
         (df["STATUS"] == "C") | (df["STATUS"] == "U"),
+        df["STATUS"] == "Pendiente",
         (df["FECHA_LLEGADA"].isna() & (df["ETA_LP"] < pd.Timestamp.now()) & df["INVOICE"].isnull()),
         (df["FECHA_LLEGADA"].isna() & (df["ETA_LP"] < pd.Timestamp.now()) & df["INVOICE"].notna()),
         df["INVOICE"].isnull() & (df["STATUS"] == "B/O"),
@@ -91,12 +91,14 @@ def validar_estado_pedidos(df):
     # Resultados correspondientes a las condiciones
     resultados = [
         "Cancelado y no será atendido.",
+        "Pendiente de Colocar al Proveedor",
         "Pedido sin Atención y Retrasado",
         "Pedido Retrasado en tránsito",
         "Estado en Back Order, posible retraso.",
         "La Pieza ha arribado al almacén.",
         "La Pieza se encuentra en tránsito."
     ]
+
     # Aplicar las condiciones y asignar resultados al campo ANALISIS
     df["ANALISIS"] = np.select(condiciones, resultados, default="Sin información suficiente.")
     return df
