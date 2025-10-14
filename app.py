@@ -133,7 +133,8 @@ def apply_prompt_template(dataframe):
     3. Proporciona no solo un resumen cuantitativo, sino también un análisis cualitativo que evalúe posibles patrones importantes observados en los datos.
     4. Importante: Si consideras que no hay  más información adicional para analizar, se puntual con la respuesta. NO lo hagas muy amplio
     5. Importante: Si solamente existe una línea, no hace falta que hagas más análisis mas que entregar el estado.
-    5. Tu respuesta debe ser profesional, detallada y relevante, evitando información no fundamentada en los datos proporcionados.
+    6. Tu respuesta debe ser profesional, detallada y relevante, evitando información no fundamentada en los datos proporcionados.
+    7. Si la columna dice "Pendiente de Colocar al Proveedor" por favor explica que el pedido esta esperando la consolidación del pedido.
 
     ### Objetivo de tu respuesta:
     - Resume el estado de las líneas de datos según los valores únicos en la columna "ANALISIS".
