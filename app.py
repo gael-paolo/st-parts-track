@@ -56,7 +56,16 @@ def cargar_datos(url):
     df["ENTRY_DATE"] = pd.to_datetime(df["ENTRY_DATE"], errors="coerce")
     df["ETD"] = pd.to_datetime(df["ETD"], errors="coerce")
 
-    return df
+    columnas_finales = [
+    'TYPE', 'VIA', 'SOLICITED', 'REFERENCE', 'CLIENT', 'NP',
+    'NP_ACCEPTED', 'DATE_SOLICITED', 'DESCRIPTION', 'STATUS', 
+    'INVOICE', 'ETD', 'SHIP_DATE','ARRIVAL_DATE','ENTRY_DATE', 'QTY'
+    ]
+
+    # Filtrar solo columnas existentes (evita errores si falta alguna)
+    columnas_existentes = [c for c in columnas_finales if c in df.columns]
+
+    return df[columnas_existentes]
 
 def cargar_transito(url):
     df = pd.read_csv(url)
