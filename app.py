@@ -13,7 +13,6 @@ st.title("Tracking de Pedidos ~ Nissan Parts")
 
 # Sección Reservas
 st.header("Consulta Pedidos Reservados")
-via_importacion = st.selectbox("Seleccione la vía de importación:", ["Aérea", "Marítima"])
 
 # Botones principales
 consulta_referencia_btn = st.button("Opción: Consulta Referencia", key="consulta_referencia_btn")
@@ -39,24 +38,42 @@ if busqueda_similar_btn:
     st.session_state.mostrar_busqueda_similar = True
 
 # URLs públicas
-URL_AEREA = st.secrets["URL_AEREA"]
-URL_MARITIMA = st.secrets["URL_MARITIMA"]
 URL_TRANSITO = st.secrets["URL_TRANSITO"]
+URL_SUPPLY = st.secrets["URL_SUPPLY"]
 
 gemini_api_key = st.secrets["gemini_api_key"]
 
 # Función para cargar datos
-def cargar_datos(url, via):
+def cargar_datos(url):
     df = pd.read_csv(url)
-    df["REFERENCIA"] = df["REFERENCIA"].astype(str)
+
+    df["REFERENCE"] = df["REFERENCE"].astype(str)
     df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
-    if via == "Marítima":
-        df["SHIP_DATE"] = pd.to_datetime(df["SHIP_DATE"], errors="coerce")
-        df["ETA_LP"] = pd.to_datetime(df["SHIP_DATE"] + pd.Timedelta(days=60), errors="coerce")
-        df["SHIP_DATE"] = df["SHIP_DATE"].apply(
-            lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") else x)
-    df["FECHA_LLEGADA"] = pd.to_datetime(df["FECHA_LLEGADA"], errors="coerce")
-    df["ETA_LP"] = pd.to_datetime(df["ETA_LP"], errors="coerce")
+
+    df["DATE_SOLICITED"] = pd.to_datetime(df["DATE_SOLICITED"], errors="coerce")
+    df["SHIP_DATE"] = pd.to_datetime(df["SHIP_DATE"], errors="coerce")
+    df["ARRIVAL_DATE"] = pd.to_datetime(df["ARRIVAL_DATE"], errors="coerce")
+    df["ENTRY_DATE"] = pd.to_datetime(df["ENTRY_DATE"], errors="coerce")
+    df["ETD"] = pd.to_datetime(df["ETD"], errors="coerce")
+
+    cond_air = df["VIA"] == "AIR"
+    cond_invoice = df["INVOICE"] != "No Invoice"
+
+    df["ETA_LP"] = np.select(
+        [
+            cond_air & cond_invoice,
+            cond_air & ~cond_invoice,
+            ~cond_air & cond_invoice,
+            ~cond_air & ~cond_invoice
+        ],
+        [
+            df["SHIP_DATE"] + pd.Timedelta(days=30),
+            df["ETD"] + pd.Timedelta(days=45),
+            df["SHIP_DATE"] + pd.Timedelta(days=50),
+            df["ETD"] + pd.Timedelta(days=50)
+        ],
+        default=pd.NaT)
+
     return df
 
 def cargar_transito(url):
@@ -69,23 +86,20 @@ def validar_estado_pedidos(df):
     df["STATUS"] = df["STATUS"].fillna("")
     df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
     df["INVOICE"] = df["INVOICE"].apply(
-        lambda x: pd.NA if pd.isnull(x) or x == "Sin Invoice" else x)
-
-    # Considerar valores "1900-01-01" como NaT en las fechas
-    df["FECHA_LLEGADA"] = df["FECHA_LLEGADA"].apply(
+        lambda x: pd.NA if pd.isnull(x) or x == "No Invoice" else x)
+    df["ENTRY_DATE"] = df["ENTRY_DATE"].apply(
         lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") else x)
-    df["ETA_LP"] = df["ETA_LP"].apply(
-        lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") or x == pd.Timestamp("1900-03-02") else x)
 
     # Definir las condiciones para el análisis
     condiciones = [
         (df["STATUS"] == "C") | (df["STATUS"] == "U"),
-        df["STATUS"] == "Pendiente",
-        (df["FECHA_LLEGADA"].isna() & (df["ETA_LP"] < pd.Timestamp.now()) & df["INVOICE"].isnull()),
-        (df["FECHA_LLEGADA"].isna() & (df["ETA_LP"] < pd.Timestamp.now()) & df["INVOICE"].notna()),
+        df["STATUS"] == "Pending",
+        (df["ARRIVAL_DATE"].isna() & (df["ETA_LP"] < pd.Timestamp.now()) & df["INVOICE"].isnull()),
+        (df["ARRIVAL_DATE"].isna() & (df["ETA_LP"] < pd.Timestamp.now()) & df["INVOICE"].notna()),
         df["INVOICE"].isnull() & (df["STATUS"] == "B/O"),
-        df["FECHA_LLEGADA"].notna(),
-        df["FECHA_LLEGADA"].isna() & df["INVOICE"].notna()
+        df["ARRIVAL_DATE"].notna(),
+        df["ARRIVAL_DATE"].isna() & df["INVOICE"].notna(),
+        df['ENTRY_DATE'].notna()
         ]
 
     # Resultados correspondientes a las condiciones
@@ -96,7 +110,8 @@ def validar_estado_pedidos(df):
         "Pedido Retrasado en tránsito",
         "Estado en Back Order, posible retraso.",
         "La Pieza ha arribado al almacén.",
-        "La Pieza se encuentra en tránsito."
+        "La Pieza se encuentra en tránsito.",
+        "Pieza ingresada y lista para disposición"
     ]
 
     # Aplicar las condiciones y asignar resultados al campo ANALISIS
@@ -149,11 +164,11 @@ def apply_prompt_template(dataframe):
     Con base en la información de la columna "ANALISIS", entrega una conclusión clara, relevante y con observaciones adicionales.
 
     ### Datos para analizar:
-    {dataframe[["REFERENCIA", "ANALISIS"]].to_dict()}
+    {dataframe[["REFERENCE", "ANALISIS"]].to_dict()}
     """
 def get_gemini_prompt(dataframe):
     prompt = apply_prompt_template(dataframe)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     response = model.generate_content(prompt)
     return response.text.strip()
 
@@ -165,14 +180,11 @@ if st.session_state.mostrar_referencia:
         with st.spinner("Procesando referencia..."):
             try:
                 # Carga de datos y filtrado por referencia
-                if via_importacion == "Aérea":
-                    df = cargar_datos(URL_AEREA, "Aérea")
-                else:
-                    df = cargar_datos(URL_MARITIMA, "Marítima")
-                df_filtrado = df[df["REFERENCIA"] == referencia]
+                df = cargar_datos(URL_SUPPLY)
+                df_filtrado = df[df["REFERENCE"] == referencia]
                 df_filtrado = validar_estado_pedidos(df_filtrado)
                 df_filtrado["ETA_LP"] = pd.to_datetime(df_filtrado["ETA_LP"]).dt.strftime("%Y/%m/%d")
-                df_filtrado["FECHA_LLEGADA"] = pd.to_datetime(df_filtrado["FECHA_LLEGADA"]).dt.strftime("%Y/%m/%d")
+                df_filtrado["ARRIVAL_DATE"] = pd.to_datetime(df_filtrado["ARRIVAL_DATE"]).dt.strftime("%Y/%m/%d")
 
                 if not df_filtrado.empty:
                     st.subheader(f"Resultados para la referencia: {referencia}")
@@ -192,14 +204,11 @@ if st.session_state.mostrar_busqueda_similar:
         with st.spinner("Buscando coincidencias similares..."):
             try:
                 # Carga de datos y búsqueda difusa
-                if via_importacion == "Aérea":
-                    df = cargar_datos(URL_AEREA, "Aérea")
-                else:
-                    df = cargar_datos(URL_MARITIMA, "Marítima")
+                df = cargar_datos(URL_SUPPLY)
                 df = validar_estado_pedidos(df)
                 df["ETA_LP"] = pd.to_datetime(df["ETA_LP"]).dt.strftime("%Y/%m/%d")
-                df["FECHA_LLEGADA"] = pd.to_datetime(df["FECHA_LLEGADA"]).dt.strftime("%Y/%m/%d")
-                resultados_similares = buscar_similares(df, "CLIENTE", cliente_busqueda, limite=10, umbral=80)
+                df["ARRIVAL_DATE"] = pd.to_datetime(df["ARRIVAL_DATE"]).dt.strftime("%Y/%m/%d")
+                resultados_similares = buscar_similares(df, "CLIENT", cliente_busqueda, limite=10, umbral=80)
 
                 if not resultados_similares.empty:
                     st.subheader(f"Resultados similares para: {cliente_busqueda}")
