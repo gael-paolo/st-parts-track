@@ -56,6 +56,22 @@ def cargar_datos(url):
     df["ENTRY_DATE"] = pd.to_datetime(df["ENTRY_DATE"], errors="coerce")
     df["ETD"] = pd.to_datetime(df["ETD"], errors="coerce")
 
+    return df
+
+def cargar_transito(url):
+    df = pd.read_csv(url)
+    return df
+
+# Función para validar estado de pedidos
+def validar_estado_pedidos(df):
+    # Limpieza de las columnas STATUS e INVOICE
+    df["STATUS"] = df["STATUS"].fillna("")
+    df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
+    df["INVOICE"] = df["INVOICE"].apply(
+        lambda x: pd.NA if pd.isnull(x) or x == "No Invoice" else x)
+    df["ENTRY_DATE"] = df["ENTRY_DATE"].apply(
+        lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") else x)
+
     cond_air = df["VIA"] == "AIR"
     cond_invoice = df["INVOICE"] != "No Invoice"
 
@@ -73,22 +89,6 @@ def cargar_datos(url):
             df["ETD"] + pd.Timedelta(days=50)
         ],
         default=pd.NaT)
-
-    return df
-
-def cargar_transito(url):
-    df = pd.read_csv(url)
-    return df
-
-# Función para validar estado de pedidos
-def validar_estado_pedidos(df):
-    # Limpieza de las columnas STATUS e INVOICE
-    df["STATUS"] = df["STATUS"].fillna("")
-    df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
-    df["INVOICE"] = df["INVOICE"].apply(
-        lambda x: pd.NA if pd.isnull(x) or x == "No Invoice" else x)
-    df["ENTRY_DATE"] = df["ENTRY_DATE"].apply(
-        lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") else x)
 
     # Definir las condiciones para el análisis
     condiciones = [
