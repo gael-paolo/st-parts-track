@@ -73,7 +73,7 @@ def validar_estado_pedidos(df):
         lambda x: pd.NaT if pd.isnull(x) or x == pd.Timestamp("1900-01-01") else x)
 
     cond_air = df["VIA"] == "AIR"
-    cond_invoice = df["INVOICE"] != "No Invoice"
+    cond_invoice = df["INVOICE"].notna()
 
     df["ETA_LP"] = pd.NaT
 
