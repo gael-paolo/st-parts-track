@@ -50,7 +50,7 @@ def cargar_datos(url):
     df["REFERENCE"] = df["REFERENCE"].astype(str)
     df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
 
-    df["DATE_SOLICITED"] = pd.to_datetime(df["DATE_SOLICITED"], errors="coerce")
+    df["DATE_SOLICITED"] = df["DATE_SOLICITED"].dt.strftime("%Y/%m/%d")
     df["SHIP_DATE"] = pd.to_datetime(df["SHIP_DATE"], errors="coerce")
     df["ARRIVAL_DATE"] = pd.to_datetime(df["ARRIVAL_DATE"], errors="coerce")
     df["ENTRY_DATE"] = pd.to_datetime(df["ENTRY_DATE"], errors="coerce")
@@ -188,7 +188,7 @@ if st.session_state.mostrar_referencia:
 
                 if not df_filtrado.empty:
                     st.subheader(f"Resultados para la referencia: {referencia}")
-                    st.dataframe(df_filtrado.drop(df_filtrado.columns[5], axis=1))
+                    st.dataframe(df_filtrado)
                     genai.configure(api_key=gemini_api_key)
                     comentario = get_gemini_prompt(df_filtrado)
                     st.write(comentario)
