@@ -75,20 +75,12 @@ def validar_estado_pedidos(df):
     cond_air = df["VIA"] == "AIR"
     cond_invoice = df["INVOICE"] != "No Invoice"
 
-    df["ETA_LP"] = np.select(
-        [
-            cond_air & cond_invoice,
-            cond_air & ~cond_invoice,
-            ~cond_air & cond_invoice,
-            ~cond_air & ~cond_invoice
-        ],
-        [
-            df["SHIP_DATE"] + pd.Timedelta(days=30),
-            df["ETD"] + pd.Timedelta(days=45),
-            df["SHIP_DATE"] + pd.Timedelta(days=50),
-            df["ETD"] + pd.Timedelta(days=50)
-        ],
-        default=pd.NaT)
+    df["ETA_LP"] = pd.NaT
+
+    df.loc[cond_air & cond_invoice, "ETA_LP"] = df["SHIP_DATE"] + pd.Timedelta(days=30)
+    df.loc[cond_air & ~cond_invoice, "ETA_LP"] = df["ETD"] + pd.Timedelta(days=45)
+    df.loc[~cond_air & cond_invoice, "ETA_LP"] = df["SHIP_DATE"] + pd.Timedelta(days=50)
+    df.loc[~cond_air & ~cond_invoice, "ETA_LP"] = df["ETD"] + pd.Timedelta(days=50)
 
     # Definir las condiciones para el análisis
     condiciones = [
