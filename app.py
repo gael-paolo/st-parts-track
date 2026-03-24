@@ -50,7 +50,7 @@ def cargar_datos(url):
     df["REFERENCE"] = df["REFERENCE"].astype(str)
     df["INVOICE"] = df["INVOICE"].replace(["", "(en blanco)"], pd.NA)
 
-    df["DATE_SOLICITED"] = df["DATE_SOLICITED"].dt.strftime("%d/%m/%Y")
+    df["DATE_SOLICITED"] = pd.to_datetime(df["DATE_SOLICITED"], errors="coerce")
     df["SHIP_DATE"] = pd.to_datetime(df["SHIP_DATE"], errors="coerce")
     df["ARRIVAL_DATE"] = pd.to_datetime(df["ARRIVAL_DATE"], errors="coerce")
     df["ENTRY_DATE"] = pd.to_datetime(df["ENTRY_DATE"], errors="coerce")
