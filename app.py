@@ -176,7 +176,6 @@ if st.session_state.mostrar_referencia:
                 df_filtrado = df[df["REFERENCE"] == referencia]
                 df_filtrado = validar_estado_pedidos(df_filtrado)
                 df_filtrado["ETA_LP"] = pd.to_datetime(df_filtrado["ETA_LP"]).dt.strftime("%Y/%m/%d")
-                df_filtrado["ARRIVAL_DATE"] = pd.to_datetime(df_filtrado["ARRIVAL_DATE"]).dt.strftime("%Y/%m/%d")
 
                 if not df_filtrado.empty:
                     st.subheader(f"Resultados para la referencia: {referencia}")
